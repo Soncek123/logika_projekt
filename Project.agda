@@ -1,4 +1,4 @@
-module Project where
+module code where
 
 open import Data.Bool using (Bool; true; false; not)
 open import Data.List using (List; []; _∷_)
@@ -8,7 +8,7 @@ open import Data.Product using (_×_; _,_)
 open import Relation.Nullary using (¬_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; inspect; [_])
 
-
+--------------------------------------------------------------------------------
 -- 1. Define a type of formulas called Formula, with the following grammar:
         -- Formula → Var 𝑛
         -- | ¬Formula
@@ -24,6 +24,7 @@ data Formula : Set where
 infixr 6 _∧ᶠ_
 infixr 5 _∨ᶠ_
 
+------------------------------------------------------------------------------------
 -- 2. Define a type of negation normal form formulas called NNF, with the following
 -- grammar:
     --     Literal → Var 𝑛
@@ -43,7 +44,7 @@ data NNF : Set where
 
 infixr 6 _∧ⁿ_
 infixr 5 _∨ⁿ_
-
+---------------------------------------------------------------------------------------
 -- 3. Construct a function to-nnf of type Formula → NNF that converts a formula
 -- to an equivalent formula in negation normal form.
 -- Note: You may find a more suitable name for the functions.
@@ -61,6 +62,7 @@ mutual
   to-nnf-neg (f ∧ᶠ g) = to-nnf-neg f ∨ⁿ to-nnf-neg g
   to-nnf-neg (f ∨ᶠ g) = to-nnf-neg f ∧ⁿ to-nnf-neg g
 
+----------------------------------------------------------------------
 -- 4. 
 
 import Relation.Binary.PropositionalEquality as Eq
@@ -133,6 +135,7 @@ open AssocList 𝒩 Bool
 Assignment : Set
 Assignment = Assoc
 
+-------------------------------------------------------------------------------
 -- 5. Define an evaluation function eval ∶ Assignment → Formula → Maybe Bool
 -- assigning to each assignment of variables and formula its truth value.
 
@@ -162,6 +165,7 @@ eval assn (neg f) = maybe-not (eval assn f)
 eval assn (f ∧ᶠ g) = maybe-and (eval assn f) (eval assn g)
 eval assn (f ∨ᶠ g) = maybe-or (eval assn f) (eval assn g)
 
+--------------------------------------------------------------------------------------
 -- 6. Define an evaluation function eval-nnf ∶ Assignment → NNF → Maybe Bool
 -- assigning to each assignment of variables and negation normal from formula its truth value.
 
@@ -174,6 +178,8 @@ eval-nnf assn (lit l) = eval-lit assn l
 eval-nnf assn (f ∧ⁿ g) = maybe-and (eval-nnf assn f) (eval-nnf assn g)
 eval-nnf assn (f ∨ⁿ g) = maybe-or (eval-nnf assn f) (eval-nnf assn g)
 
+
+-----------------------------------------------------------------------------
 -- 7. Define a type of conjunction normal form formulas called CNF
 
 data Disjunct : Set where
@@ -188,6 +194,8 @@ data CNF : Set where
 
 infixr 6 _∧ᶜ_
 
+
+----------------------------------------------------------------------------------------
 -- 8. Define an evaluation function eval-cnf ∶ Assignment → CNF → Maybe Bool
 -- assigning to each assignment of variables and conjunction normal from formula its truth value.
 
@@ -201,11 +209,149 @@ eval-cnf assn (disj d) = eval-disjunct assn d
 eval-cnf assn (d ∧ᶜ c) =
   maybe-and (eval-disjunct assn d) (eval-cnf assn c)
 
-  
--- 9. Write an SAT solver for CNF formulas. It should output either an as-
--- signment such that evaluating the formula at that assignment evaluates to true or that no such
--- assignment exists.
--- Note: a more complex implementation (e. g. DPLL) will be graded higher.
+
+-------------------------------------------------------------
+--9.Write an SAT solver for CNF formulas. It should output either an assignment such that evaluating the 
+--formula at that assignment evaluates to true or that no such assignment exists.
+--Note: a more complex implementation (e. g. DPLL) will be graded higher.
+
+Clause : Set
+Clause = List Literal
+
+DPLLFormula : Set
+DPLLFormula = List Clause
+
+
+disjunct-to-clause : Disjunct → Clause
+disjunct-to-clause (dlit l) = l ∷ []
+disjunct-to-clause (l ∨ᵈ d) = l ∷ disjunct-to-clause d
+
+cnf-to-formula : CNF → DPLLFormula
+cnf-to-formula (disj d) = disjunct-to-clause d ∷ []
+cnf-to-formula (d ∧ᶜ c) = disjunct-to-clause d ∷ cnf-to-formula c
+
+
+nat-eq-bool : ℕ → ℕ → Bool
+nat-eq-bool m n with 𝒩 .test-≡ m n
+... | yes _ = true
+... | no _ = false
+
+lit-eq : Literal → Literal → Bool
+lit-eq (pos m) (pos n) = nat-eq-bool m n
+lit-eq (negLit m) (negLit n) = nat-eq-bool m n
+lit-eq (pos m) (negLit n) = false
+lit-eq (negLit m) (pos n) = false
+
+
+
+opposite : Literal → Literal
+opposite (pos n) = negLit n
+opposite (negLit n) = pos n
+
+
+
+contains-lit : Literal → Clause → Bool
+contains-lit l [] = false
+contains-lit l (x ∷ xs) with lit-eq l x
+... | true = true
+... | false = contains-lit l xs
+
+
+
+remove-lit : Literal → Clause → Clause
+remove-lit l [] = []
+remove-lit l (x ∷ xs) with lit-eq l x
+... | true = remove-lit l xs
+... | false = x ∷ remove-lit l xs
+
+
+
+simplify-clause : Literal → Clause → Maybe Clause
+simplify-clause l c with contains-lit l c
+... | true = nothing
+... | false = just (remove-lit (opposite l) c)
+
+
+
+simplify-formula : Literal → DPLLFormula → DPLLFormula
+simplify-formula l [] = []
+simplify-formula l (c ∷ cs) with simplify-clause l c
+... | nothing = simplify-formula l cs
+... | just c' = c' ∷ simplify-formula l cs
+
+
+
+assign-lit : Assignment → Literal → Assignment
+assign-lit assn (pos n) = assn [ n ]≔ true
+assign-lit assn (negLit n) = assn [ n ]≔ false
+
+
+
+find-unit : DPLLFormula → Maybe Literal
+find-unit [] = nothing
+find-unit ([] ∷ cs) = find-unit cs
+find-unit ((l ∷ []) ∷ cs) = just l
+find-unit ((l ∷ x ∷ xs) ∷ cs) = find-unit cs
+
+
+
+has-empty-clause : DPLLFormula → Bool
+has-empty-clause [] = false
+has-empty-clause ([] ∷ cs) = true
+has-empty-clause ((x ∷ xs) ∷ cs) = has-empty-clause cs
+
+
+
+formula-empty : DPLLFormula → Bool
+formula-empty [] = true
+formula-empty (c ∷ cs) = false
+
+
+
+pick-literal : DPLLFormula → Maybe Literal
+pick-literal [] = nothing
+pick-literal ([] ∷ cs) = pick-literal cs
+pick-literal ((l ∷ xs) ∷ cs) = just l
+
+
+
+_+_ : ℕ → ℕ → ℕ
+zero + n = n
+suc m + n = suc (m + n)
+
+clause-size : Clause → ℕ
+clause-size [] = zero
+clause-size (l ∷ ls) = suc (clause-size ls)
+
+formula-size : DPLLFormula → ℕ
+formula-size [] = zero
+formula-size (c ∷ cs) = clause-size c + formula-size cs
+
+
+
+dpll : ℕ → DPLLFormula → Assignment → Maybe Assignment
+dpll zero f assn = nothing
+dpll (suc fuel) f assn with find-unit f
+... | just l =
+  dpll fuel (simplify-formula l f) (assign-lit assn l)
+
+... | nothing with has-empty-clause f
+...   | true = nothing
+
+...   | false with formula-empty f
+...     | true = just assn
+
+...     | false with pick-literal f
+...       | nothing = just assn
+
+...       | just l with dpll fuel (simplify-formula l f) (assign-lit assn l)
+...         | just assn' = just assn'
+...         | nothing =
+  dpll fuel
+       (simplify-formula (opposite l) f)
+       (assign-lit assn (opposite l))
+
+
 
 max : ℕ → ℕ → ℕ
 max zero n = n
@@ -224,53 +370,66 @@ max-cnf : CNF → ℕ
 max-cnf (disj d) = max-disjunct d
 max-cnf (d ∧ᶜ c) = max (max-disjunct d) (max-cnf c)
 
-_++_ : {A : Set} → List A → List A → List A
-[] ++ ys = ys
-(x ∷ xs) ++ ys = x ∷ (xs ++ ys)
+assign-default : Assignment → ℕ → Assignment
+assign-default assn n with assn ‼ n
+... | just b = assn
+... | nothing = assn [ n ]≔ false
 
-extend-with-var : ℕ → Assignment → List Assignment
-extend-with-var n assn =
-  (assn [ n ]≔ true) ∷ (assn [ n ]≔ false) ∷ []
-
-extend-all : ℕ → List Assignment → List Assignment
-extend-all n [] = []
-extend-all n (assn ∷ assns) = extend-with-var n assn ++ extend-all n assns
-
-assignments : ℕ → List Assignment
-assignments zero = [] ∷ []
-assignments (suc n) = extend-all n (assignments n)
-
-find-sat : List Assignment → CNF → Maybe Assignment
-find-sat [] c = nothing
-find-sat (assn ∷ assns) c with eval-cnf assn c
-... | just true = just assn
-... | just false = find-sat assns c
-... | nothing = find-sat assns c
+complete-up-to : ℕ → Assignment → Assignment
+complete-up-to zero assn = assign-default assn zero
+complete-up-to (suc n) assn =
+  assign-default (complete-up-to n assn) (suc n)
 
 sat-cnf : CNF → Maybe Assignment
-sat-cnf c = find-sat (assignments (suc (max-cnf c))) c
+sat-cnf c with dpll (suc (formula-size (cnf-to-formula c)))
+                   (cnf-to-formula c)
+                   []
+... | nothing = nothing
+... | just assn = just (complete-up-to (max-cnf c) assn)
 
 
+is-sat : CNF → Bool
+is-sat c with sat-cnf c
+... | nothing = false
+... | just assn = true
+
+
+-------------------------------------------------------------------------------
 -- 10. Show that the SAT solver you implemented is indeed correct, if that is not
--- obvious from the output type of the SAT solver.
+--obvious from the output type of the SAT solver.
+
 
 record Satisfying (c : CNF) : Set where
   constructor satAssignment
   field
-    assn : Assignment
+    assn  : Assignment
     proof : eval-cnf assn c ≡ just true
 
-find-sat-correct : (c : CNF) → List Assignment → Maybe (Satisfying c)
-find-sat-correct c [] = nothing
-find-sat-correct c (assn ∷ assns) with eval-cnf assn c in eq
-... | just true = just (satAssignment assn eq)
-... | just false = find-sat-correct c assns
-... | nothing = find-sat-correct c assns
+certify-sat : (c : CNF) → (assn : Assignment) →
+              (r : Maybe Bool) →
+              eval-cnf assn c ≡ r →
+              Maybe (Satisfying c)
+certify-sat c assn (just true) eq = just (satAssignment assn eq)
+certify-sat c assn (just false) eq = nothing
+certify-sat c assn nothing eq = nothing
 
 sat-cnf-correct : (c : CNF) → Maybe (Satisfying c)
-sat-cnf-correct c =
-  find-sat-correct c (assignments (suc (max-cnf c)))
+sat-cnf-correct c with sat-cnf c
+... | nothing = nothing
+... | just assn = certify-sat c assn (eval-cnf assn c) refl
 
+
+
+-- If sat-cnf-correct returns just, correctness is immediate from the output
+-- type, because the returned proof has type:
+--
+--   eval-cnf assn c ≡ just true
+--
+-- The nothing case is not fully certified here. Proving that nothing means
+-- unsatisfiable would require proving completeness of the DPLL procedure and
+-- that the chosen fuel is sufficient.
+
+---------------------------------------------------------------------------------------
 -- 11. Write a function that converts an NNF formula to an equisatisfiable CNFformula.
 -- Note: it is intended for you to attempt to implement the Tseytin transformation. A simpler
 -- implementation will be accepted for partial credit.
@@ -298,13 +457,10 @@ nnf-to-cnf (lit l) = disj (dlit l)
 nnf-to-cnf (f ∧ⁿ g) = cnf-and (nnf-to-cnf f) (nnf-to-cnf g)
 nnf-to-cnf (f ∨ⁿ g) = cnf-or (nnf-to-cnf f) (nnf-to-cnf g)
 
+-----------------------------------------------------------------------------------
 -- 12. To tie the bow on the whole thing, use the above to construct a SAT solver
 -- for any formula.
 
 sat-formula : Formula → Maybe Assignment
 sat-formula f =
   sat-cnf (nnf-to-cnf (to-nnf f))
-
-sat-formula-correct : (f : Formula) → Maybe (Satisfying (nnf-to-cnf (to-nnf f)))
-sat-formula-correct f =
-  sat-cnf-correct (nnf-to-cnf (to-nnf f))
